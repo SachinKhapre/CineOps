@@ -1,0 +1,17 @@
+{
+  "incident_id": "INC-001",
+  "metric": "completion_rate",
+  "affected_dimensions": {
+    "device_type": "Android",
+    "region": "Maharashtra",
+    "quality": ["1080p", "4K"],
+    "hour_range": [19, 22]
+  },
+  "day_offset_from_first_day": 7,
+  "root_cause": "buffering spike",
+  "baseline_buffer_rate": 0.021,
+  "incident_buffer_rate": 0.108,
+  "baseline_completion_rate": 0.75,
+  "incident_completion_rate": 0.45,
+  "expected_recommendation": "investigate the Android playback/encoding path deployed before the 19:00 window"
+}
