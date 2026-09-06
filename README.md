@@ -1,11 +1,11 @@
-# CineOps
+# MediaDoc
 
 Autonomous entertainment intelligence agent. Investigates ambiguous operational
 problems ("something went wrong yesterday") over ClickHouse-stored viewing
 events via the `mcp-clickhouse` MCP server, and returns an evidence-backed
 root cause and recommendation.
 
-See `CineOps — End-to-End Project Blueprint.md` for the full spec.
+See `MediaDoc — End-to-End Project Blueprint.md` for the full spec.
 
 ## Layout
 

@@ -5,10 +5,10 @@
       "env": {
         "CLICKHOUSE_HOST": "localhost",
         "CLICKHOUSE_PORT": "8123",
-        "CLICKHOUSE_USER": "cineops_readonly",
-        "CLICKHOUSE_PASSWORD": "cineops_readonly_pw",
+        "CLICKHOUSE_USER": "mediadoc_readonly",
+        "CLICKHOUSE_PASSWORD": "mediadoc_readonly_pw",
         "CLICKHOUSE_SECURE": "false",
-        "CLICKHOUSE_DATABASE": "cineops"
+        "CLICKHOUSE_DATABASE": "mediadoc"
       }
     }
   }

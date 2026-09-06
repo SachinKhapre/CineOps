@@ -1,4 +1,4 @@
-"""Synthetic CineOps event generator.
+"""Synthetic MediaDoc event generator.
 
 Generates users, content, and viewing_events for N days of "normal" traffic
 plus one injected incident day (Incident A: Android + Maharashtra + 1080p/4K
@@ -136,9 +136,9 @@ def write_csv(path, header, rows):
 
 def load_to_clickhouse(host, port, users_rows, content_rows, events_path, batch_size=50_000):
     client = clickhouse_connect.get_client(host=host, port=port)
-    client.insert("cineops.users", users_rows,
+    client.insert("mediadoc.users", users_rows,
                   column_names=["user_id", "region", "country", "age_band", "subscription_tier"])
-    client.insert("cineops.content", content_rows,
+    client.insert("mediadoc.content", content_rows,
                   column_names=["content_id", "title", "genre", "language", "content_type"])
 
     columns = ["event_id", "event_timestamp", "user_id", "content_id", "session_id",
@@ -152,10 +152,10 @@ def load_to_clickhouse(host, port, users_rows, content_rows, events_path, batch_
         for row in reader:
             batch.append(row)
             if len(batch) >= batch_size:
-                client.insert("cineops.viewing_events", batch, column_names=columns)
+                client.insert("mediadoc.viewing_events", batch, column_names=columns)
                 batch = []
         if batch:
-            client.insert("cineops.viewing_events", batch, column_names=columns)
+            client.insert("mediadoc.viewing_events", batch, column_names=columns)
 
 
 def main():

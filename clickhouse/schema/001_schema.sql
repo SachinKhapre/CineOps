@@ -1,6 +1,6 @@
-CREATE DATABASE IF NOT EXISTS cineops;
+CREATE DATABASE IF NOT EXISTS mediadoc;
 
-CREATE TABLE IF NOT EXISTS cineops.content
+CREATE TABLE IF NOT EXISTS mediadoc.content
 (
     content_id   String,
     title        String,
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS cineops.content
 ENGINE = MergeTree
 ORDER BY content_id;
 
-CREATE TABLE IF NOT EXISTS cineops.users
+CREATE TABLE IF NOT EXISTS mediadoc.users
 (
     user_id            String,
     region             LowCardinality(String),
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS cineops.users
 ENGINE = MergeTree
 ORDER BY user_id;
 
-CREATE TABLE IF NOT EXISTS cineops.viewing_events
+CREATE TABLE IF NOT EXISTS mediadoc.viewing_events
 (
     event_id               String,
     event_timestamp        DateTime,

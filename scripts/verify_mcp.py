@@ -26,7 +26,7 @@ async def main():
 
             result = await session.call_tool(
                 "run_query",
-                {"query": "SELECT count() AS n FROM cineops.viewing_events"},
+                {"query": "SELECT count() AS n FROM mediadoc.viewing_events"},
             )
             print("query result:", result.content[0].text)
 

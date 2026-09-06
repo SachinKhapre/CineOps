@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="CineOps")
+app = FastAPI(title="MediaDoc")
 
 
 @app.get("/api/health")
