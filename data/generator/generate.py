@@ -10,9 +10,10 @@ Usage:
 """
 import argparse
 import csv
+import os
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import clickhouse_connect
 
@@ -134,8 +135,8 @@ def write_csv(path, header, rows):
         w.writerows(rows)
 
 
-def load_to_clickhouse(host, port, users_rows, content_rows, events_path, batch_size=50_000):
-    client = clickhouse_connect.get_client(host=host, port=port)
+def load_to_clickhouse(host, port, user, password, users_rows, content_rows, events_path, batch_size=50_000):
+    client = clickhouse_connect.get_client(host=host, port=port, username=user, password=password)
     client.insert("mediadoc.users", users_rows,
                   column_names=["user_id", "region", "country", "age_band", "subscription_tier"])
     client.insert("mediadoc.content", content_rows,
@@ -150,6 +151,10 @@ def load_to_clickhouse(host, port, users_rows, content_rows, events_path, batch_
         reader = csv.reader(f)
         next(reader)
         for row in reader:
+            row[1] = datetime.fromisoformat(row[1]).replace(tzinfo=timezone.utc)
+            row[6] = int(row[6])
+            row[7] = int(row[7])
+            row[15] = int(row[15])
             batch.append(row)
             if len(batch) >= batch_size:
                 client.insert("mediadoc.viewing_events", batch, column_names=columns)
@@ -164,6 +169,8 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8123)
+    parser.add_argument("--user", default="default")
+    parser.add_argument("--password", default=os.environ.get("CLICKHOUSE_ADMIN_PASSWORD", "cineops_admin_pw"))
     parser.add_argument("--out-dir", default=".")
     parser.add_argument("--dry-run", action="store_true", help="write CSVs only, skip ClickHouse load")
     args = parser.parse_args()
@@ -198,7 +205,7 @@ def main():
     if args.dry_run:
         print(f"Wrote CSVs to {args.out_dir} (dry run, no ClickHouse load)")
     else:
-        load_to_clickhouse(args.host, args.port, users_rows, content_rows, events_path)
+        load_to_clickhouse(args.host, args.port, args.user, args.password, users_rows, content_rows, events_path)
         print(f"Loaded {preset['users']} users, {NUM_CONTENT} content, "
               f"incident day = {(anchor_date + timedelta(days=NUM_DAYS - 1)).date()}")
 
