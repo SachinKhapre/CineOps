@@ -13,11 +13,10 @@ SERVER = CONFIG["mcpServers"]["clickhouse"]
 
 
 async def main():
-    command = SERVER["command"]
-    venv_exe = os.path.join(os.path.dirname(__file__), "..", ".venv", "Scripts", "mcp-clickhouse.exe")
-    if os.path.exists(venv_exe):
-        command = venv_exe
-    params = StdioServerParameters(command=command, args=[], env={**os.environ, **SERVER["env"]})
+    venv_python = os.path.join(os.path.dirname(__file__), "..", ".venv", "Scripts", "python.exe")
+    command = venv_python if os.path.exists(venv_python) else SERVER["command"]
+    args = ["-c", "from mcp_clickhouse.main import main; main()"] if command == venv_python else []
+    params = StdioServerParameters(command=command, args=args, env={**os.environ, **SERVER["env"]})
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
