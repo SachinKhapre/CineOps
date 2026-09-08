@@ -1,12 +1,17 @@
-"""Ground-truth eval (§40, §41): runs the agent against the injected incident
-and scores what it found against scenarios/incident_a.json.
+"""Ground-truth eval (§40, §41): runs the agent against an injected incident
+and scores what it found against the matching scenarios/incident_*.json.
+
+Load the data for the scenario first -- the incidents live in separate
+datasets so each is scored on its own (§39: each injected incident is a test
+case):
+
+    python data/generator/generate.py --scale medium --incident c
+    python backend/tests/eval_agent.py --scenario c --runs 3
 
 Unlike test_mediadoc_agent.py's self-checks, this calls Gemini for real and
 costs API credits -- roughly 8-12 model calls per run. Detection quality is
 not deterministic, so a single pass proves little; use --runs to measure how
 often it actually lands on the right answer.
-
-    python backend/tests/eval_agent.py --runs 3
 """
 import argparse
 import asyncio
@@ -18,9 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.app.agents.mediadoc_agent import investigate
 
-GROUND_TRUTH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "data", "generator", "scenarios", "incident_a.json"
-)
+SCENARIO_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "generator", "scenarios")
 QUESTION = "Something went wrong with our streaming content yesterday. Investigate it."
 
 
@@ -33,25 +36,49 @@ def _overlaps(a, b):
 
 def score(result: dict, truth: dict) -> dict:
     """Scores one investigation against ground truth. §39: the agent need not
-    match wording, only identify the correct causal candidate."""
+    match wording, only identify the correct causal candidate.
+
+    Which dimension checks apply comes from the scenario's
+    affected_dimensions, because the incidents are localized differently --
+    Incident A to a device/region/quality/hour slice, Incident C to a single
+    title regardless of those.
+    """
     detection = result.get("detection") or {}
     segment = detection.get("most_affected") or {}
     dims = truth["affected_dimensions"]
     evidence = result.get("evidence") or []
-    root_cause = ((result.get("conclusion") or {}).get("root_cause") or "").lower()
+    conclusion = result.get("conclusion") or {}
+    # The content_id may be named anywhere in the narrative, not just in the
+    # segment, so search the whole conclusion for the content checks.
+    narrative = " ".join([
+        conclusion.get("root_cause") or "",
+        conclusion.get("recommendation") or "",
+        json.dumps(segment),
+    ]).lower()
 
-    return {
-        "day": detection.get("anomaly_day") == truth["incident_day"],
-        "device_type": segment.get("device_type") == dims["device_type"],
-        "region": segment.get("region") == dims["region"],
-        "quality": segment.get("quality") in dims["quality"],
-        "hour_window": _overlaps(segment.get("hour_range"), dims["hour_range"]),
-        "root_cause": any(k in root_cause for k in truth["root_cause_keywords"]),
-        # §40 evidence quality / false positives: it should both back the
-        # conclusion it kept AND actively rule the alternatives out.
-        "cited_evidence": any(e.get("supported") for e in evidence),
-        "rejected_alternatives": any(not e.get("supported") for e in evidence),
-    }
+    checks = {"day": detection.get("anomaly_day") == truth["incident_day"]}
+
+    if "device_type" in dims:
+        checks["device_type"] = segment.get("device_type") == dims["device_type"]
+    if "region" in dims:
+        checks["region"] = segment.get("region") == dims["region"]
+    if "quality" in dims:
+        checks["quality"] = segment.get("quality") in dims["quality"]
+    if "hour_range" in dims:
+        checks["hour_window"] = _overlaps(segment.get("hour_range"), dims["hour_range"])
+    if "content_id" in dims:
+        checks["content_id"] = dims["content_id"].lower() in narrative
+
+    checks["root_cause"] = any(k in narrative for k in truth["root_cause_keywords"])
+    # §40 false positives: for a content anomaly, blaming the delivery path is
+    # the wrong answer even though the metrics moved.
+    if truth.get("wrong_cause_keywords"):
+        checks["not_misattributed"] = not any(k in narrative for k in truth["wrong_cause_keywords"])
+    # §40 evidence quality: it should both back the conclusion it kept AND
+    # actively rule the alternatives out.
+    checks["cited_evidence"] = any(e.get("supported") for e in evidence)
+    checks["rejected_alternatives"] = any(not e.get("supported") for e in evidence)
+    return checks
 
 
 def _found(result: dict) -> str:
@@ -64,12 +91,15 @@ def _found(result: dict) -> str:
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=1, help="investigations to run (each costs API credits)")
+    parser.add_argument("--scenario", choices=["a", "c"], default="a", help="which injected incident to score against")
     args = parser.parse_args()
 
-    truth = json.load(open(GROUND_TRUTH))
-    print(f"Ground truth {truth['incident_id']}: {truth['incident_day']} / "
-          f"{truth['affected_dimensions']['device_type']} / {truth['affected_dimensions']['region']} / "
-          f"{truth['affected_dimensions']['quality']} / {truth['affected_dimensions']['hour_range']}\n")
+    truth = json.load(open(os.path.join(SCENARIO_DIR, f"incident_{args.scenario}.json")))
+    dims = ", ".join(f"{k}={v}" for k, v in truth["affected_dimensions"].items())
+    print(f"Ground truth {truth['incident_id']} on {truth['incident_day']}: {dims}")
+    # Nothing here can tell whether the matching dataset is actually loaded, so
+    # say what it should be -- a total wipeout usually means the wrong one is.
+    print(f"Expecting data from: generate.py --scale medium --incident {args.scenario}\n")
 
     all_checks, all_stats, failures = [], [], 0
     for run in range(1, args.runs + 1):

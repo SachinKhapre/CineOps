@@ -40,11 +40,22 @@ TIERS = ["basic", "standard", "premium"]
 
 BASE_COMPLETION_PROB = 0.75
 BASE_BUFFER_PROB = 0.021
-INCIDENT_BUFFER_PROB = 0.108
-INCIDENT_COMPLETION_PROB = 0.45
+BASE_SKIP_SHARE = 0.5  # of non-completions, skip vs exit
+
+# Incident A (§17): playback degradation, narrow to device+region+quality+hours.
+INCIDENT_A_BUFFER_PROB = 0.108
+INCIDENT_A_COMPLETION_PROB = 0.45
+
+# Incident C (§17): one title's engagement collapses -- skip rate +70%,
+# completion -35% -- while buffering stays perfectly normal. That normal
+# buffering is the discriminator: an agent that blames infrastructure here is
+# wrong in exactly the way §40 counts as a false positive.
+INCIDENT_C_CONTENT_ID = "c0042"
+INCIDENT_C_COMPLETION_PROB = 0.49  # 0.75 * 0.65
+INCIDENT_C_SKIP_SHARE = 0.42  # lifts skip rate 0.125 -> ~0.21 given more non-completions
 
 
-def is_incident_slot(day_index, device_type, region, quality, hour):
+def is_incident_a_slot(day_index, device_type, region, quality, hour):
     return (
         day_index == NUM_DAYS - 1
         and device_type == "Android"
@@ -52,6 +63,19 @@ def is_incident_slot(day_index, device_type, region, quality, hour):
         and quality in ("1080p", "4K")
         and INCIDENT_HOUR_START <= hour < INCIDENT_HOUR_END
     )
+
+
+def is_incident_c_slot(day_index, content_id):
+    return day_index == NUM_DAYS - 1 and content_id == INCIDENT_C_CONTENT_ID
+
+
+def session_probabilities(incident, day_index, device_type, region, quality, hour, content_id):
+    """(buffer_prob, completion_prob, skip_share) for one session."""
+    if incident == "a" and is_incident_a_slot(day_index, device_type, region, quality, hour):
+        return INCIDENT_A_BUFFER_PROB, INCIDENT_A_COMPLETION_PROB, BASE_SKIP_SHARE
+    if incident == "c" and is_incident_c_slot(day_index, content_id):
+        return BASE_BUFFER_PROB, INCIDENT_C_COMPLETION_PROB, INCIDENT_C_SKIP_SHARE
+    return BASE_BUFFER_PROB, BASE_COMPLETION_PROB, BASE_SKIP_SHARE
 
 
 def gen_content(rng):
@@ -81,7 +105,7 @@ def gen_users(rng, n):
     return rows
 
 
-def gen_events_for_session(rng, user, content, day_index, anchor_date):
+def gen_events_for_session(rng, user, content, day_index, anchor_date, incident):
     user_id, region, _country, _age, _tier = user
     content_id = content[0]
     device_type = rng.choice(DEVICE_TYPES)
@@ -94,9 +118,9 @@ def gen_events_for_session(rng, user, content, day_index, anchor_date):
     minute = rng.randint(0, 59)
     ts = anchor_date + timedelta(days=day_index, hours=hour, minutes=minute)
 
-    incident = is_incident_slot(day_index, device_type, region, quality, hour)
-    buffer_prob = INCIDENT_BUFFER_PROB if incident else BASE_BUFFER_PROB
-    completion_prob = INCIDENT_COMPLETION_PROB if incident else BASE_COMPLETION_PROB
+    buffer_prob, completion_prob, skip_share = session_probabilities(
+        incident, day_index, device_type, region, quality, hour, content_id
+    )
 
     session_id = str(uuid.uuid4())
     events = []
@@ -115,7 +139,7 @@ def gen_events_for_session(rng, user, content, day_index, anchor_date):
         events.append((t, "complete", duration))
     else:
         pos = rng.randint(1, duration - 1)
-        events.append((t, "skip" if rng.random() < 0.5 else "exit", pos))
+        events.append((t, "skip" if rng.random() < skip_share else "exit", pos))
 
     rows = []
     for e in events:
@@ -173,6 +197,8 @@ def main():
     parser.add_argument("--user", default="default")
     parser.add_argument("--password", default=os.environ.get("CLICKHOUSE_ADMIN_PASSWORD", "mediadoc_admin_pw"))
     parser.add_argument("--out-dir", default=".")
+    parser.add_argument("--incident", choices=["a", "c"], default="a",
+                        help="which §17 incident to inject: a=playback degradation, c=content anomaly")
     parser.add_argument("--dry-run", action="store_true", help="write CSVs only, skip ClickHouse load")
     args = parser.parse_args()
 
@@ -180,11 +206,11 @@ def main():
     rng = random.Random(args.seed)
     anchor_date = datetime(2026, 9, 1)
 
-    # The eval harness scores the agent against scenarios/incident_a.json, so a
-    # drift between the generated incident day and the recorded one would look
-    # like the agent picked the wrong day. Fail here instead, where it's obvious.
+    # The eval harness scores the agent against this scenario file, so drift
+    # between the generated incident day and the recorded one would look like
+    # the agent picked the wrong day. Fail here instead, where it's obvious.
     incident_day = (anchor_date + timedelta(days=NUM_DAYS - 1)).date().isoformat()
-    scenario_path = os.path.join(os.path.dirname(__file__), "scenarios", "incident_a.json")
+    scenario_path = os.path.join(os.path.dirname(__file__), "scenarios", f"incident_{args.incident}.json")
     recorded_day = json.load(open(scenario_path))["incident_day"]
     assert incident_day == recorded_day, f"generated incident day {incident_day} != {scenario_path} {recorded_day}"
 
@@ -203,7 +229,7 @@ def main():
             for user in users_rows:
                 content = rng.choice(content_rows)
                 for _ in range(preset["sessions_per_user_per_day"]):
-                    rows = gen_events_for_session(rng, user, content, day_index, anchor_date)
+                    rows = gen_events_for_session(rng, user, content, day_index, anchor_date, args.incident)
                     w.writerows(rows)
 
     write_csv(f"{args.out_dir}/users.csv",
@@ -216,7 +242,7 @@ def main():
     else:
         load_to_clickhouse(args.host, args.port, args.user, args.password, users_rows, content_rows, events_path)
         print(f"Loaded {preset['users']} users, {NUM_CONTENT} content, "
-              f"incident day = {(anchor_date + timedelta(days=NUM_DAYS - 1)).date()}")
+              f"incident {args.incident.upper()} on {incident_day}")
 
 
 if __name__ == "__main__":

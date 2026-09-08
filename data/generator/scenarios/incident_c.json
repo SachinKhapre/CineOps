@@ -1,0 +1,17 @@
+{
+  "incident_id": "INC-003",
+  "metric": "completion_rate",
+  "incident_day": "2026-09-08",
+  "affected_dimensions": {
+    "content_id": "c0042"
+  },
+  "root_cause": "content-specific engagement collapse on a single title",
+  "root_cause_keywords": ["content", "title", "c0042", "asset", "episode"],
+  "wrong_cause_keywords": ["cdn", "buffering", "network", "isp", "encoder", "infrastructure"],
+  "baseline_completion_rate": 0.75,
+  "incident_completion_rate": 0.49,
+  "baseline_skip_rate": 0.125,
+  "incident_skip_rate": 0.21,
+  "notes": "Playback is deliberately normal -- buffer rate stays at baseline. An agent that blames CDN/infrastructure here has produced the false positive §40 asks about.",
+  "expected_recommendation": "review the specific title's asset/metadata rather than the delivery path"
+}
