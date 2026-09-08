@@ -170,7 +170,7 @@ def main():
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8123)
     parser.add_argument("--user", default="default")
-    parser.add_argument("--password", default=os.environ.get("CLICKHOUSE_ADMIN_PASSWORD", "cineops_admin_pw"))
+    parser.add_argument("--password", default=os.environ.get("CLICKHOUSE_ADMIN_PASSWORD", "mediadoc_admin_pw"))
     parser.add_argument("--out-dir", default=".")
     parser.add_argument("--dry-run", action="store_true", help="write CSVs only, skip ClickHouse load")
     args = parser.parse_args()

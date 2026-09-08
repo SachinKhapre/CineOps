@@ -1,0 +1,9 @@
+# API layer
+fastapi==0.141.1
+uvicorn==0.52.4
+
+# Agent: Gemini + the ClickHouse MCP server it drives over stdio
+google-genai==2.22.0
+mcp==2.1.1
+mcp-clickhouse==0.6.0
+tenacity==9.1.4

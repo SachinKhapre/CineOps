@@ -1,1 +1,1 @@
-clickhouse-connect
+clickhouse-connect==1.8.0

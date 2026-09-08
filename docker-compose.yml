@@ -2,7 +2,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     environment:
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:-cineops_admin_pw}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:-mediadoc_admin_pw}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
       - "8123:8123"
