@@ -1,6 +1,7 @@
 # API layer
 fastapi==0.141.1
 uvicorn==0.52.4
+python-dotenv==1.2.3
 
 # Agent: Gemini + the ClickHouse MCP server it drives over stdio
 google-genai==2.22.0

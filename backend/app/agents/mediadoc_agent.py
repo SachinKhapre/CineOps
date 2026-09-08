@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 
 from google import genai
 from google.genai import types
@@ -139,7 +140,7 @@ def compute_confidence(evidence_items: list) -> dict:
     return {"score": pct, "band": band}
 
 
-async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int, stats: dict) -> dict:
+async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int, stats: dict, emit) -> dict:
     config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, tools=gemini_tools)
     contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
 
@@ -152,6 +153,11 @@ async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int,
         if not function_calls:
             return parse_json_response(response.text)
         stats["queries"] += len(function_calls)
+
+        for fc in function_calls:
+            # §34/§60: the demo has to visibly show ClickHouse being queried,
+            # so the SQL itself is part of the progress stream.
+            emit("query", tool=fc.name, sql=(dict(fc.args or {})).get("query"))
 
         # Gemini can request several tool calls in one turn; they're
         # independent read-only queries on the same session, so run them
@@ -227,13 +233,30 @@ Respond with ONLY this JSON schema:
 {{"root_cause": str, "recommendation": str, "unresolved_uncertainty": str}}"""
 
 
-async def investigate(question: str) -> dict:
+async def investigate(question: str, on_event=None) -> dict:
+    """Runs the three phases and returns the structured result.
+
+    on_event(event: dict) is called at phase boundaries and for every
+    ClickHouse query, so the API layer can stream progress (§28). It's
+    optional -- the CLI and eval harness just take the return value.
+    """
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     params = _mcp_server_params()
     # §44 observability: MCP query count and wall-clock are what tell us
     # whether an investigation is getting slower or chattier over time.
     stats = {"queries": 0, "model_calls": 0, "seconds": 0.0}
     started = time.monotonic()
+    phase_name = {"n": "detection"}
+
+    def emit(event_type, **payload):
+        if on_event:
+            on_event({
+                "type": event_type,
+                "phase": phase_name["n"],
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                **payload,
+            })
+
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -243,24 +266,33 @@ async def investigate(question: str) -> dict:
 
             def done(payload):
                 stats["seconds"] = round(time.monotonic() - started, 1)
-                return {"question": question, "stats": stats, **payload}
+                result = {"question": question, "stats": stats, **payload}
+                emit("error" if "error" in result else "complete", result=result)
+                return result
 
-            detection = await _run_phase(client, session, gemini_tools, DETECT_PROMPT.format(question=question), 5, stats)
+            async def phase(name, prompt, max_turns):
+                phase_name["n"] = name
+                emit("phase_start")
+                out = await _run_phase(client, session, gemini_tools, prompt, max_turns, stats, emit)
+                emit("phase_complete", result=out)
+                return out
+
+            detection = await phase("detection", DETECT_PROMPT.format(question=question), 5)
             if "error" in detection:
                 return done({"phase": "detection", **detection})
 
-            evidence = await _run_phase(
-                client, session, gemini_tools,
+            evidence = await phase(
+                "evidence",
                 EVIDENCE_PROMPT.format(anomaly_day=detection["anomaly_day"], **detection["most_affected"]),
-                5, stats,
+                5,
             )
             if "error" in evidence:
                 return done({"detection": detection, "phase": "evidence", **evidence})
 
-            conclusion = await _run_phase(
-                client, session, gemini_tools,
+            conclusion = await phase(
+                "conclusion",
                 CONCLUSION_PROMPT.format(detection=json.dumps(detection), evidence=json.dumps(evidence)),
-                1, stats,
+                1,
             )
 
             return done({
