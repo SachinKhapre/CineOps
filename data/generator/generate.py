@@ -10,6 +10,7 @@ Usage:
 """
 import argparse
 import csv
+import json
 import os
 import random
 import uuid
@@ -178,6 +179,14 @@ def main():
     preset = SCALE_PRESETS[args.scale]
     rng = random.Random(args.seed)
     anchor_date = datetime(2026, 9, 1)
+
+    # The eval harness scores the agent against scenarios/incident_a.json, so a
+    # drift between the generated incident day and the recorded one would look
+    # like the agent picked the wrong day. Fail here instead, where it's obvious.
+    incident_day = (anchor_date + timedelta(days=NUM_DAYS - 1)).date().isoformat()
+    scenario_path = os.path.join(os.path.dirname(__file__), "scenarios", "incident_a.json")
+    recorded_day = json.load(open(scenario_path))["incident_day"]
+    assert incident_day == recorded_day, f"generated incident day {incident_day} != {scenario_path} {recorded_day}"
 
     content_rows = gen_content(rng)
     users_rows = gen_users(rng, preset["users"])

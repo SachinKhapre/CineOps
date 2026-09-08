@@ -8,7 +8,9 @@
     "hour_range": [19, 22]
   },
   "day_offset_from_first_day": 7,
+  "incident_day": "2026-09-08",
   "root_cause": "buffering spike",
+  "root_cause_keywords": ["buffer", "playback", "stream", "cdn", "network", "delivery"],
   "baseline_buffer_rate": 0.021,
   "incident_buffer_rate": 0.108,
   "baseline_completion_rate": 0.75,

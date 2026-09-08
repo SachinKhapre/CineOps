@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import time
 
 from google import genai
 from google.genai import types
@@ -138,17 +139,19 @@ def compute_confidence(evidence_items: list) -> dict:
     return {"score": pct, "band": band}
 
 
-async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int) -> dict:
+async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int, stats: dict) -> dict:
     config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, tools=gemini_tools)
     contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
 
     for _ in range(max_turns):
         response = await _generate(client, model=MODEL, contents=contents, config=config)
+        stats["model_calls"] += 1
         candidate = response.candidates[0]
         contents.append(candidate.content)
         function_calls = [p.function_call for p in candidate.content.parts if p.function_call]
         if not function_calls:
             return parse_json_response(response.text)
+        stats["queries"] += len(function_calls)
 
         # Gemini can request several tool calls in one turn; they're
         # independent read-only queries on the same session, so run them
@@ -169,6 +172,7 @@ async def _run_phase(client, session, gemini_tools, prompt: str, max_turns: int)
         text="Query budget reached. Answer now with ONLY the required JSON, using the data already gathered.")]))
     final_config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT)
     response = await _generate(client, model=MODEL, contents=contents, config=final_config)
+    stats["model_calls"] += 1
     return parse_json_response(response.text)
 
 
@@ -226,6 +230,10 @@ Respond with ONLY this JSON schema:
 async def investigate(question: str) -> dict:
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     params = _mcp_server_params()
+    # §44 observability: MCP query count and wall-clock are what tell us
+    # whether an investigation is getting slower or chattier over time.
+    stats = {"queries": 0, "model_calls": 0, "seconds": 0.0}
+    started = time.monotonic()
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -233,31 +241,34 @@ async def investigate(question: str) -> dict:
             mcp_tools = [t.model_copy(update={"input_schema": _drop_bool_subschemas(t.input_schema)}) for t in mcp_tools]
             gemini_tools = mcp_to_gemini_tools(mcp_tools)
 
-            detection = await _run_phase(client, session, gemini_tools, DETECT_PROMPT.format(question=question), max_turns=5)
+            def done(payload):
+                stats["seconds"] = round(time.monotonic() - started, 1)
+                return {"question": question, "stats": stats, **payload}
+
+            detection = await _run_phase(client, session, gemini_tools, DETECT_PROMPT.format(question=question), 5, stats)
             if "error" in detection:
-                return {"question": question, "phase": "detection", **detection}
+                return done({"phase": "detection", **detection})
 
             evidence = await _run_phase(
                 client, session, gemini_tools,
                 EVIDENCE_PROMPT.format(anomaly_day=detection["anomaly_day"], **detection["most_affected"]),
-                max_turns=5,
+                5, stats,
             )
             if "error" in evidence:
-                return {"question": question, "detection": detection, "phase": "evidence", **evidence}
+                return done({"detection": detection, "phase": "evidence", **evidence})
 
             conclusion = await _run_phase(
                 client, session, gemini_tools,
                 CONCLUSION_PROMPT.format(detection=json.dumps(detection), evidence=json.dumps(evidence)),
-                max_turns=1,
+                1, stats,
             )
 
-            return {
-                "question": question,
+            return done({
                 "detection": detection,
                 "evidence": evidence.get("evidence", []),
                 "confidence": compute_confidence(evidence.get("evidence", [])),
                 "conclusion": conclusion,
-            }
+            })
 
 
 if __name__ == "__main__":
