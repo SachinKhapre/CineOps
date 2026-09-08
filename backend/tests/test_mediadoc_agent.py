@@ -8,7 +8,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client
-from backend.app.agents.mediadoc_agent import _mcp_server_params
+from backend.app.agents.mediadoc_agent import _mcp_server_params, compute_confidence, parse_json_response
+
+
+def test_offline():
+    assert parse_json_response('{"a": 1}') == {"a": 1}
+    assert parse_json_response('```json\n{"a": 1}\n```') == {"a": 1}
+    assert parse_json_response("not json")["error"]
+
+    assert compute_confidence([]) == {"score": 0, "band": "Low"}
+    assert compute_confidence([{"supported": True, "strength": "strong"}, {"supported": True, "strength": "strong"}]) == {"score": 100, "band": "Very High"}
+    assert compute_confidence([{"supported": True, "strength": "weak"}]) == {"score": 33, "band": "Moderate"}
+    # ruling out an alternative hypothesis (supported=false) must not drag down confidence in the one that IS supported
+    assert compute_confidence([{"supported": True, "strength": "strong"}, {"supported": False, "strength": "contradictory"}]) == {"score": 100, "band": "Very High"}
+    # nothing supported at all -> no basis for confidence
+    assert compute_confidence([{"supported": False, "strength": "contradictory"}]) == {"score": 0, "band": "Low"}
+    print("offline checks ok")
 
 
 async def main():
@@ -27,4 +42,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    test_offline()
     asyncio.run(main())
