@@ -33,8 +33,15 @@ reliable.
 ## Run
 
 ```
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app --reload   # API on :8000
+cd frontend && npm install && npm run dev   # console on :5173
 ```
+
+The console is the intended way in — open http://localhost:5173, ask a
+question, and watch the investigation stream. Vite proxies `/api` to the
+backend, so there's no CORS setup or API base URL to configure.
+
+The API on its own:
 
 - `POST /api/investigations` `{"question": "..."}` → starts one, returns an id
 - `GET  /api/investigations/{id}/events` → SSE progress (phases + each SQL query)
